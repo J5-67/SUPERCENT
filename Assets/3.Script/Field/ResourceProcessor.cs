@@ -8,7 +8,7 @@ namespace Supercent.Field
     public class ResourceProcessor : MonoBehaviour
     {
         [Header("References")]
-        [SerializeField] private SellZone inputZone;
+        [SerializeField] private ResourceZone inputZone;
         [SerializeField] private GameObject processedPrefab;
         [SerializeField] private Transform outputPivot;
 

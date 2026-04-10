@@ -5,105 +5,219 @@ using Supercent.Player;
 
 namespace Supercent.Field
 {
+    /// <summary>
+    /// 플레이어가 가공품을 판매대에 쌓으면 구매자가 뒤로 줄을 서서 가져가는 지능형 판매 구역 스크립트
+    /// </summary>
     public class SellZone : MonoBehaviour
     {
-        [Header("Settings")]
-        [SerializeField] private float dropInterval = 0.1f;
-        [SerializeField] private Transform sellTarget; 
-        [SerializeField] private float flyDuration = 0.3f;
-        [SerializeField] private float verticalSpacing = 0.2f; // 위로 쌓이는 간격
-        [SerializeField] private float columnSpacing = 0.6f;   // 두 줄 사이의 간격
-        [SerializeField] private int columns = 2;           // 쌓을 열의 개수
+        [Header("Customer Logic")]
+        [SerializeField] private GameObject customerPrefab;
+        [SerializeField] private int minDemand = 1;
+        [SerializeField] private int maxDemand = 5;
 
-        private List<Transform> _depositedItems = new List<Transform>();
-        private Coroutine _sellCoroutine;
+        [Header("Auto Queue Settings")]
+        [SerializeField] private Transform firstQueuePivot; 
+        [SerializeField] private float queueSpacing = 1.8f;
+        [SerializeField] private int maxQueueCount = 2;
+
+        [Header("Counter Settings")]
+        [SerializeField] private Transform counterPivot;
+        [SerializeField] private float verticalSpacing = 0.2f;
+        [SerializeField] private float columnSpacing = 0.6f;
+        [SerializeField] private int columns = 2;
+        [SerializeField] private float serveInterval = 0.5f;
+
+        [Header("Money Integration")]
+        [SerializeField] private MoneyZone moneyZone;
+
+        [Header("Transaction Settings")]
+        [SerializeField] private float depositInterval = 0.15f;
+        [SerializeField] private float moveDuration = 0.3f;
+
+        private List<Customer> _customers = new List<Customer>();
+        private List<Transform> _counterItems = new List<Transform>();
+        private Coroutine _depositCoroutine;
         private PlayerStackHandler _currentPlayer;
+
+        private void Start()
+        {
+            StartCoroutine(InitialSpawnRoutine());
+            StartCoroutine(CustomerServeRoutine());
+        }
+
+        private IEnumerator InitialSpawnRoutine()
+        {
+            while (_customers.Count < maxQueueCount)
+            {
+                SpawnCustomer();
+                yield return new WaitForSeconds(0.3f);
+            }
+        }
+
+        private void SpawnCustomer()
+        {
+            if (firstQueuePivot == null) return;
+            if (_customers.Count >= maxQueueCount) return;
+
+            Vector3 spawnOffset = -firstQueuePivot.forward * (_customers.Count + 1) * queueSpacing;
+            Vector3 spawnPos = firstQueuePivot.position + spawnOffset + (-firstQueuePivot.forward * 3f);
+            
+            GameObject obj = Instantiate(customerPrefab, spawnPos, Quaternion.identity);
+            
+            if (obj.TryGetComponent<Customer>(out var customer))
+            {
+                customer.Initialize(Random.Range(minDemand, maxDemand + 1));
+                _customers.Add(customer);
+                UpdateQueuePositions();
+            }
+        }
+
+        private void UpdateQueuePositions()
+        {
+            for (int i = 0; i < _customers.Count; i++)
+            {
+                Vector3 targetPos = firstQueuePivot.position + (-firstQueuePivot.forward * i * queueSpacing);
+                _customers[i].MoveTo(targetPos);
+            }
+        }
 
         private void OnTriggerEnter(Collider other)
         {
-            if (other.TryGetComponent<PlayerStackHandler>(out var handler))
+            var handler = other.GetComponentInParent<PlayerStackHandler>();
+            if (handler != null)
             {
                 _currentPlayer = handler;
-                if (_sellCoroutine == null) _sellCoroutine = StartCoroutine(SellRoutine());
+                if (_depositCoroutine == null) _depositCoroutine = StartCoroutine(DepositRoutine());
             }
         }
 
         private void OnTriggerExit(Collider other)
         {
-            if (other.TryGetComponent<PlayerStackHandler>(out var handler))
+            var handler = other.GetComponentInParent<PlayerStackHandler>();
+            if (handler != null && _currentPlayer == handler)
             {
-                if (_currentPlayer == handler)
+                _currentPlayer = null;
+                if (_depositCoroutine != null)
                 {
-                    _currentPlayer = null;
-                    if (_sellCoroutine != null)
-                    {
-                        StopCoroutine(_sellCoroutine);
-                        _sellCoroutine = null;
-                    }
+                    StopCoroutine(_depositCoroutine);
+                    _depositCoroutine = null;
                 }
             }
         }
 
-        public Transform ExtractItem()
-        {
-            if (_depositedItems.Count == 0) return null;
-
-            int lastIndex = _depositedItems.Count - 1;
-            Transform item = _depositedItems[lastIndex];
-            _depositedItems.RemoveAt(lastIndex);
-            return item;
-        }
-
-        private IEnumerator SellRoutine()
+        private IEnumerator DepositRoutine()
         {
             while (_currentPlayer != null)
             {
-                GameObject item = _currentPlayer.PopFromStack();
-                
+                GameObject item = _currentPlayer.PopFromFrontStack();
                 if (item != null)
                 {
-                    int index = _depositedItems.Count;
-                    int col = index % columns;      
-                    int row = index / columns;      
+                    int index = _counterItems.Count;
+                    int col = index % columns;
+                    int row = index / columns;
 
                     Vector3 offset = new Vector3(col * columnSpacing, row * verticalSpacing, 0);
-                    Vector3 targetPos = sellTarget.position + offset;
-                    
+                    Vector3 targetPos = counterPivot.position + offset;
+
                     Transform itemTrm = item.transform;
-                    _depositedItems.Add(itemTrm);
-                    StartCoroutine(FlyToTarget(itemTrm, targetPos));
+                    _counterItems.Add(itemTrm);
                     
-                    yield return new WaitForSeconds(dropInterval);
+                    StartCoroutine(MoveToCounter(itemTrm, targetPos));
+                    yield return new WaitForSeconds(depositInterval);
                 }
                 else
                 {
-                    yield return new WaitForSeconds(0.1f);
+                    yield return new WaitForSeconds(0.2f);
                 }
             }
         }
 
-        private IEnumerator FlyToTarget(Transform item, Vector3 targetPos)
+        private IEnumerator CustomerServeRoutine()
         {
-            Vector3 startPos = item.position;
-            Quaternion startRot = item.rotation;
-            float elapsed = 0f;
-
-            // 소유권 변경 (플레이어 스택에서 분리)
-            item.SetParent(transform);
-
-            while (elapsed < flyDuration)
+            while (true)
             {
-                elapsed += Time.deltaTime;
-                float t = elapsed / flyDuration;
-                
-                // 포물선을 그리며 부드럽게 적재 위치로 이동
-                item.position = Vector3.Lerp(startPos, targetPos, t) + (Vector3.up * Mathf.Sin(t * Mathf.PI) * 1f);
-                item.rotation = Quaternion.Slerp(startRot, transform.rotation, t);
-                
-                yield return null;
+                if (_customers.Count > 0)
+                {
+                    Customer target = _customers[0];
+                    
+                    if (target.IsSatisfied)
+                    {
+                        HandleSatisfiedCustomer(target);
+                        yield return new WaitForSeconds(0.8f);
+                        continue;
+                    }
+
+                    if (_counterItems.Count > 0)
+                    {
+                        int lastIdx = _counterItems.Count - 1;
+                        Transform item = _counterItems[lastIdx];
+                        _counterItems.RemoveAt(lastIdx);
+
+                        target.ReceiveItem();
+                        StartCoroutine(MoveToCustomer(item, target.transform));
+
+                        if (target.IsSatisfied)
+                        {
+                            yield return new WaitForSeconds(0.6f);
+                            HandleSatisfiedCustomer(target);
+                        }
+                    }
+                }
+                yield return new WaitForSeconds(serveInterval);
+            }
+        }
+
+        private void HandleSatisfiedCustomer(Customer customer)
+        {
+            if (!_customers.Contains(customer)) return;
+            
+            _customers.Remove(customer);
+            
+            // 앞으로 퇴장 (FirstQueuePivot의 Forward 방향)
+            customer.MoveTo(customer.transform.position + firstQueuePivot.forward * 10f, 6f);
+            Destroy(customer.gameObject, 3f);
+
+            // 돈 생성
+            if (moneyZone != null)
+            {
+                moneyZone.SpawnMoney();
             }
 
+            UpdateQueuePositions();
+            Invoke(nameof(SpawnCustomer), 1.5f);
+        }
+
+        private IEnumerator MoveToCounter(Transform item, Vector3 targetPos)
+        {
+            Vector3 startPos = item.position;
+            float elapsed = 0f;
+            item.SetParent(transform);
+
+            while (elapsed < moveDuration)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / moveDuration;
+                item.position = Vector3.Lerp(startPos, targetPos, t) + (Vector3.up * Mathf.Sin(t * Mathf.PI) * 1f);
+                yield return null;
+            }
             item.position = targetPos;
+        }
+
+        private IEnumerator MoveToCustomer(Transform item, Transform target)
+        {
+            Vector3 startPos = item.position;
+            float elapsed = 0f;
+            item.SetParent(null);
+
+            while (elapsed < moveDuration)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / moveDuration;
+                item.position = Vector3.Lerp(startPos, target.position + Vector3.up * 1f, t);
+                item.localScale = Vector3.Lerp(Vector3.one, Vector3.zero, t);
+                yield return null;
+            }
+            item.gameObject.SetActive(false);
         }
     }
 }

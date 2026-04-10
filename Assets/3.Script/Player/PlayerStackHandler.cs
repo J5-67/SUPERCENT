@@ -6,95 +6,168 @@ namespace Supercent.Player
 {
     public class PlayerStackHandler : MonoBehaviour
     {
-        [Header("Stack Settings")]
-        [SerializeField] private GameObject stackedItemPrefab;
-        [SerializeField] private Transform stackPivot;
+        [Header("Front Stack (Processed)")]
+        [SerializeField] private GameObject processedItemPrefab;
+        [SerializeField] private Transform frontStackPivot;
+        [SerializeField] private Vector3 frontOffSet = new Vector3(0, 0, 0.8f);
+        [SerializeField] private float frontSpacing = 0.5f;
+
+        [Header("Back Stack (Raw Materials)")]
+        [SerializeField] private GameObject rawItemPrefab;
+        [SerializeField] private Transform backStackPivot;
+        [SerializeField] private Vector3 backOffset = new Vector3(0, 0, -0.6f);
+        [SerializeField] private float backSpacing = 0.35f;
+
+        [Header("Money Stack")]
+        [SerializeField] private GameObject moneyPrefab;
+        [SerializeField] private Vector3 moneyOffset = new Vector3(0f, 0, -1.0f); // 리소스(-0.5)보다 더 뒤(-1.0)로 배치
+        [SerializeField] private float moneySpacing = 0.1f;
+        [SerializeField] private float moneyInitialHeight = 0f; // 옆에 쌓이므로 0부터 시작
+
+        [Header("Movement Settings")]
         [SerializeField] private float followSpeed = 15f;
-        [SerializeField] private float itemSpacing = 0.5f;
-        [SerializeField] private int maxStackCount = 20;
+        [SerializeField] private float swayIntensity = 5f;
+        [SerializeField] private float maxTiltAngle = 10f;
+        [SerializeField] private int maxStackLimit = 20;
 
         [Header("Pool Settings")]
         [SerializeField] private int initialPoolSize = 20;
 
-        public bool CanAdd => _stackedItems.Count < maxStackCount;
+        public bool CanAdd => _backStackedItems.Count + _frontStackedItems.Count + _moneyStackedItems.Count < maxStackLimit * 2;
 
-        private List<Transform> _stackedItems = new List<Transform>();
-        private IObjectPool<GameObject> _stackPool;
+        private List<Transform> _frontStackedItems = new List<Transform>();
+        private List<Transform> _backStackedItems = new List<Transform>();
+        private List<Transform> _moneyStackedItems = new List<Transform>();
+        
+        private IObjectPool<GameObject> _frontPool;
+        private IObjectPool<GameObject> _backPool;
+        
+        private Vector3 _lastParentPosition;
+        private Vector3 _parentVelocity;
 
         private void Awake()
         {
-            InitializePool();
+            InitializePools();
+            _lastParentPosition = transform.position;
         }
 
-        private void InitializePool()
+        private void InitializePools()
         {
-            _stackPool = new ObjectPool<GameObject>(
-                createFunc: () => Instantiate(stackedItemPrefab),
+            _frontPool = new ObjectPool<GameObject>(
+                createFunc: () => Instantiate(processedItemPrefab),
                 actionOnGet: (obj) => obj.SetActive(true),
                 actionOnRelease: (obj) => obj.SetActive(false),
-                collectionCheck: false,
+                defaultCapacity: initialPoolSize
+            );
+
+            _backPool = new ObjectPool<GameObject>(
+                createFunc: () => Instantiate(rawItemPrefab),
+                actionOnGet: (obj) => obj.SetActive(true),
+                actionOnRelease: (obj) => obj.SetActive(false),
                 defaultCapacity: initialPoolSize
             );
         }
 
+        // 원자재 추가 (등 뒤)
         public void AddToStack()
         {
-            GameObject newItem = _stackPool.Get();
-            AddExistingToStack(newItem.transform);
+            if (_backStackedItems.Count >= maxStackLimit) return;
+            GameObject newItem = _backPool.Get();
+            newItem.transform.position = backStackPivot != null ? backStackPivot.position : transform.position;
+            newItem.transform.SetParent(null);
+            _backStackedItems.Add(newItem.transform);
         }
 
+        // 돈 추가 (원자재 위 또는 뒤)
+        public void AddMoneyToStack(Transform moneyTrm)
+        {
+            moneyTrm.SetParent(null);
+            _moneyStackedItems.Add(moneyTrm);
+        }
+
+        // 가공품 추가 (전면)
         public void AddExistingToStack(Transform item)
         {
-            if (_stackedItems.Count >= maxStackCount) return;
-
-            // 첫 아이템은 피벗 위치, 그 외에는 마지막 아이템 뒤에 배치
-            Vector3 spawnPos = _stackedItems.Count == 0 
-                ? stackPivot.position 
-                : _stackedItems[_stackedItems.Count - 1].position;
-
-            item.position = spawnPos;
-            item.SetParent(null); // 부모 관계 해제
-            _stackedItems.Add(item);
+            if (_frontStackedItems.Count >= maxStackLimit) return;
+            item.position = frontStackPivot != null ? frontStackPivot.position : transform.position;
+            item.SetParent(null);
+            _frontStackedItems.Add(item);
         }
 
+        // 스택에서 아이템 추출 (가공기에 넣을 때 등 사용)
         public GameObject PopFromStack()
         {
-            if (_stackedItems.Count == 0) return null;
+            if (_backStackedItems.Count == 0) return null;
+            int lastIdx = _backStackedItems.Count - 1;
+            GameObject item = _backStackedItems[lastIdx].gameObject;
+            _backStackedItems.RemoveAt(lastIdx);
+            return item;
+        }
 
-            int lastIndex = _stackedItems.Count - 1;
-            GameObject lastItem = _stackedItems[lastIndex].gameObject;
-            _stackedItems.RemoveAt(lastIndex);
+        public GameObject PopFromFrontStack()
+        {
+            if (_frontStackedItems.Count == 0) return null;
+            int lastIdx = _frontStackedItems.Count - 1;
+            GameObject item = _frontStackedItems[lastIdx].gameObject;
+            _frontStackedItems.RemoveAt(lastIdx);
+            return item;
+        }
+
+        public void ReleaseToBackPool(GameObject obj) => _backPool.Release(obj);
+        public void ReleaseToFrontPool(GameObject obj) => _frontPool.Release(obj);
+
+        private void Update()
+        {
+            UpdateVelocity();
+            UpdateStacks();
+        }
+
+        private void UpdateVelocity()
+        {
+            _parentVelocity = (transform.position - _lastParentPosition) / Time.deltaTime;
+            _lastParentPosition = transform.position;
+        }
+
+        private void UpdateStacks()
+        {
+            // 전면 스택 업데이트
+            UpdateSingleStack(_frontStackedItems, frontOffSet, frontSpacing, 0);
+            // 후면 스택 업데이트
+            UpdateSingleStack(_backStackedItems, backOffset, backSpacing, 0);
             
-            return lastItem;
-        }
-
-        public void ReleaseToPool(GameObject obj)
-        {
-            _stackPool.Release(obj);
-        }
-
-        private void FixedUpdate()
-        {
-            UpdateStackPosition();
-        }
-
-        private void UpdateStackPosition()
-        {
-            if (_stackedItems.Count == 0) return;
-
-            for (int i = 0; i < _stackedItems.Count; i++)
+            // 돈 스택 업데이트 (리소스 유무에 따라 동적으로 Z축 위치 조정)
+            Vector3 dynamicMoneyOffset = moneyOffset;
+            if (_backStackedItems.Count > 0)
             {
-                Transform current = _stackedItems[i];
-                
-                // 플레이어(피벗) 위치를 기본으로 하되, 인덱스만큼 위로 쌓음
-                Vector3 targetPos = stackPivot.position + (Vector3.up * (i * itemSpacing));
-                
-                // 플레이어의 회전에 맞춰 위치 오프셋을 조정 (플레이어 뒤쪽에 고정되게 하려면 추가 연산 가능)
-                // 현재는 피벗 위치에서 그대로 수직으로 쌓임
-                
-                // 부드러운 추적 (Lerp)
-                current.position = Vector3.Lerp(current.position, targetPos, Time.fixedDeltaTime * followSpeed);
-                current.rotation = Quaternion.Slerp(current.rotation, stackPivot.rotation, Time.fixedDeltaTime * followSpeed);
+                // 리소스가 있다면 리소스 위치보다 뒤로 확실히 밀어줌
+                dynamicMoneyOffset.z = backOffset.z - 0.7f;
+            }
+            
+            UpdateSingleStack(_moneyStackedItems, dynamicMoneyOffset, moneySpacing, moneyInitialHeight);
+        }
+
+        private void UpdateSingleStack(List<Transform> stack, Vector3 offset, float spacing, float initialHeight)
+        {
+            if (stack.Count == 0) return;
+
+            Vector3 basePoint = transform.TransformPoint(offset);
+            
+            float swayAmount = Mathf.Clamp(_parentVelocity.magnitude * swayIntensity, 0, maxTiltAngle);
+            Vector3 swayDir = -_parentVelocity.normalized;
+            
+            Vector3 cross = Vector3.Cross(Vector3.up, swayDir);
+            Quaternion tiltRotation = cross.sqrMagnitude > 0.001f 
+                ? Quaternion.AngleAxis(swayAmount, cross.normalized) 
+                : Quaternion.identity;
+
+            for (int i = 0; i < stack.Count; i++)
+            {
+                Transform current = stack[i];
+                Vector3 verticalOffset = Vector3.up * (initialHeight + i * spacing);
+                Vector3 targetPos = basePoint + (tiltRotation * verticalOffset);
+
+                current.position = Vector3.Lerp(current.position, targetPos, Time.deltaTime * followSpeed);
+                current.rotation = Quaternion.Slerp(current.rotation, transform.rotation, Time.deltaTime * followSpeed);
             }
         }
     }
