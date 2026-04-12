@@ -15,26 +15,11 @@ namespace Supercent.Field
             transform.localScale = Vector3.one;
         }
 
-        private void OnTriggerEnter(Collider foreign)
+
+        public void CollectBy(Player.PlayerStackHandler handler)
         {
-            if (_isCollected) return;
-
-            // 1. 컴포넌트 직접 시도
-            if (foreign.TryGetComponent<Player.PlayerStackHandler>(out var handler))
-            {
-                StartCoroutine(CollectRoutine(handler));
-                return;
-            }
-
-            // 2. 태그로 확인 시 부모에서 다시 시도
-            if (foreign.CompareTag("Player"))
-            {
-                handler = foreign.GetComponentInParent<Player.PlayerStackHandler>();
-                if (handler != null)
-                {
-                    StartCoroutine(CollectRoutine(handler));
-                }
-            }
+            if (_isCollected) return; // handler가 없더라도 채굴은 가능하게 함
+            StartCoroutine(CollectRoutine(handler));
         }
 
         private IEnumerator CollectRoutine(Player.PlayerStackHandler handler)
@@ -44,6 +29,12 @@ namespace Supercent.Field
             // 0.5초 동안 수집되는 연출 (스케일 축소)
             float elapsed = 0f;
             float duration = 0.5f;
+
+            if (handler != null && handler.TryGetComponent<Player.PlayerToolManager>(out var toolManager) && toolManager.HasDrill)
+            {
+                duration = 0.15f; // 드릴이 있으면 수집 속도 대폭 증가
+            }
+
             Vector3 initialScale = transform.localScale;
             Vector3 localPos = transform.localPosition;
 
@@ -55,9 +46,17 @@ namespace Supercent.Field
             }
 
             // 플레이어 스택이 여유 있을 때만 추가
-            if (handler != null && handler.CanAdd)
+            if (handler != null)
             {
-                handler.AddToStack();
+                if (handler.CanAdd)
+                {
+                    handler.AddToStack();
+                }
+                else
+                {
+                    // 스택이 가득 찼다면 MAX 표시 호출
+                    handler.ShowMaxIndicator();
+                }
             }
 
             // 필드 매니저를 통해 풀로 반환하며 위치 값 전달 (재생성용)

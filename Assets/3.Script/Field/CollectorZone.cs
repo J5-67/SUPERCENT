@@ -11,29 +11,67 @@ namespace Supercent.Field
     {
         [Header("References")]
         [SerializeField] private ResourceProcessor targetProcessor;
+        public ResourceProcessor TargetProcessor => targetProcessor;
 
         [Header("Settings")]
         [SerializeField] private float pickupInterval = 0.2f;
 
         private float _lastPickupTime;
 
+        private void Start()
+        {
+            if (targetProcessor == null) targetProcessor = GetComponent<ResourceProcessor>();
+            if (targetProcessor == null) targetProcessor = GetComponentInParent<ResourceProcessor>();
+        }
+
         private void OnTriggerStay(Collider other)
         {
-            // 수거 주기 체크
+            TryPickup(other);
+        }
+
+        private void OnCollisionStay(Collision collision)
+        {
+            TryPickup(collision.collider);
+        }
+
+        private void TryPickup(Collider foreign)
+        {
             if (Time.time < _lastPickupTime + pickupInterval) return;
 
-            if (other.TryGetComponent<PlayerStackHandler>(out var handler))
+            // 1. 직접 시도
+            if (foreign.TryGetComponent<PlayerStackHandler>(out var handler))
             {
-                // 플레이어 인벤토리에 여유가 있고 가공기에 결과물이 있다면
-                if (handler.CanAdd)
+                ExecutePickup(handler);
+                return;
+            }
+
+            // 2. 부모 단위 안전 탐색
+            handler = foreign.GetComponentInParent<PlayerStackHandler>();
+            if (handler != null)
+            {
+                ExecutePickup(handler);
+            }
+        }
+
+        private void ExecutePickup(PlayerStackHandler handler)
+        {
+            if (handler.CanAdd && handler.CanAddFront)
+            {
+                GameObject item = targetProcessor.PopProcessedItem();
+                if (item != null)
                 {
-                    GameObject item = targetProcessor.PopProcessedItem();
-                    if (item != null)
+                    bool added = handler.AddExistingToStack(item.transform);
+                    if (added)
                     {
-                        handler.AddExistingToStack(item.transform);
                         _lastPickupTime = Time.time;
                     }
                 }
+            }
+            else
+            {
+                // 스택이 가득 찼는데 획득을 시도하면 MAX 표시
+                handler.ShowMaxIndicator();
+                _lastPickupTime = Time.time; // 알림 중복 방지를 위해 약간의 쿨타임 적용
             }
         }
     }

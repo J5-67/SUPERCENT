@@ -34,6 +34,9 @@ namespace Supercent.Field
         [SerializeField] private float depositInterval = 0.15f;
         [SerializeField] private float moveDuration = 0.3f;
 
+        [Header("Prison Integration")]
+        [SerializeField] private PrisonZone targetPrison;
+
         private List<Customer> _customers = new List<Customer>();
         private List<Transform> _counterItems = new List<Transform>();
         private Coroutine _depositCoroutine;
@@ -112,17 +115,7 @@ namespace Supercent.Field
                 GameObject item = _currentPlayer.PopFromFrontStack();
                 if (item != null)
                 {
-                    int index = _counterItems.Count;
-                    int col = index % columns;
-                    int row = index / columns;
-
-                    Vector3 offset = new Vector3(col * columnSpacing, row * verticalSpacing, 0);
-                    Vector3 targetPos = counterPivot.position + offset;
-
-                    Transform itemTrm = item.transform;
-                    _counterItems.Add(itemTrm);
-                    
-                    StartCoroutine(MoveToCounter(itemTrm, targetPos));
+                    DepositItem(item);
                     yield return new WaitForSeconds(depositInterval);
                 }
                 else
@@ -130,6 +123,23 @@ namespace Supercent.Field
                     yield return new WaitForSeconds(0.2f);
                 }
             }
+        }
+
+        public void DepositItem(GameObject item)
+        {
+            if (item == null) return;
+
+            int index = _counterItems.Count;
+            int col = index % columns;
+            int row = index / columns;
+
+            Vector3 offset = new Vector3(col * columnSpacing, row * verticalSpacing, 0);
+            Vector3 targetPos = counterPivot.position + offset;
+
+            Transform itemTrm = item.transform;
+            _counterItems.Add(itemTrm);
+            
+            StartCoroutine(MoveToCounter(itemTrm, targetPos));
         }
 
         private IEnumerator CustomerServeRoutine()
@@ -173,9 +183,17 @@ namespace Supercent.Field
             
             _customers.Remove(customer);
             
-            // 앞으로 퇴장 (FirstQueuePivot의 Forward 방향)
-            customer.MoveTo(customer.transform.position + firstQueuePivot.forward * 10f, 6f);
-            Destroy(customer.gameObject, 3f);
+            // 앞으로 퇴장 (감옥이 설정되어 있다면 감옥 경로를 따라감)
+            if (targetPrison != null)
+            {
+                customer.FollowPath(targetPrison.GetEntryPath());
+            }
+            else
+            {
+                Debug.LogError($"<color=red>[SellZone]</color> Target Prison is NULL! Customer will be destroyed.");
+                customer.MoveTo(customer.transform.position + firstQueuePivot.forward * 10f, 6f);
+                Destroy(customer.gameObject, 3f);
+            }
 
             // 돈 생성
             if (moneyZone != null)

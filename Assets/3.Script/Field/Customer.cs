@@ -86,15 +86,48 @@ namespace Supercent.Field
             transform.localScale = _baseScale;
         }
 
+        private Coroutine _moveCoroutine;
+
         public void MoveTo(Vector3 targetPos, float speed = 5f)
         {
-            StopCoroutine(nameof(MoveRoutine));
-            StartCoroutine(MoveRoutine(targetPos, speed));
+            SafeStopMove();
+            _moveCoroutine = StartCoroutine(MoveRoutine(targetPos, speed));
+        }
+
+        public void FollowPath(Transform[] waypoints, float speed = 5f)
+        {
+            SafeStopMove();
+            _moveCoroutine = StartCoroutine(FollowPathRoutine(waypoints, speed));
+        }
+
+        private void SafeStopMove()
+        {
+            // 모든 코루틴을 중지하여 yield StartCoroutine으로 대기 중인 하위 이동까지 모두 제거
+            StopAllCoroutines();
+            _moveCoroutine = null;
+            
+            // 물리적인 속도가 남아있을 경우 초기화 (Kinematic이 아닐 때만)
+            if (TryGetComponent<Rigidbody>(out var rb) && !rb.isKinematic)
+            {
+                rb.velocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
+        }
+
+        private IEnumerator FollowPathRoutine(Transform[] waypoints, float speed)
+        {
+            if (waypoints == null) yield break;
+
+            foreach (var wp in waypoints)
+            {
+                if (wp == null) continue;
+                yield return StartCoroutine(MoveRoutine(wp.position, speed));
+            }
         }
 
         private IEnumerator MoveRoutine(Vector3 targetPos, float speed)
         {
-            while (Vector3.SqrMagnitude(transform.position - targetPos) > 0.01f)
+            while (Vector3.SqrMagnitude(transform.position - targetPos) > 0.1f)
             {
                 transform.position = Vector3.MoveTowards(transform.position, targetPos, speed * Time.deltaTime);
                 

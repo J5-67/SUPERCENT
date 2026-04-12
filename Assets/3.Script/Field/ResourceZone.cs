@@ -105,5 +105,21 @@ namespace Supercent.Field
 
             item.position = targetPos;
         }
+
+        public void AddItem(GameObject item)
+        {
+            if (item == null) return;
+
+            int index = _depositedItems.Count;
+            int col = index % columns;      
+            int row = index / columns;      
+
+            Vector3 offset = new Vector3(col * columnSpacing, row * verticalSpacing, 0);
+            Vector3 targetPos = sellTarget.position + offset;
+            
+            Transform itemTrm = item.transform;
+            _depositedItems.Add(itemTrm);
+            StartCoroutine(FlyToTarget(itemTrm, targetPos));
+        }
     }
 }

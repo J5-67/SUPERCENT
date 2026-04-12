@@ -19,6 +19,8 @@ namespace Supercent.Field
         private bool _isCollecting = false;
         private PlayerStackHandler _playerInside;
 
+        public bool HasMoney => _moneyStack.Count > 0;
+
         public void SpawnMoney()
         {
             int index = _moneyStack.Count;
@@ -28,7 +30,11 @@ namespace Supercent.Field
             Vector3 offset = new Vector3((col - 1) * columnSpacing, row * verticalSpacing, 0);
             Vector3 targetPos = spawnPivot.position + offset;
 
-            GameObject newMoney = Instantiate(moneyPrefab, spawnPivot.position, Quaternion.identity);
+            GameObject newMoney = MoneyManager.Instance.GetMoney();
+            if (newMoney == null) newMoney = Instantiate(moneyPrefab); // Fallback
+            newMoney.transform.position = spawnPivot.position;
+            newMoney.transform.rotation = Quaternion.identity;
+            
             newMoney.transform.position = targetPos;
             _moneyStack.Add(newMoney);
         }

@@ -17,8 +17,14 @@ namespace Supercent.Field
         [SerializeField] private float outputVerticalSpacing = 0.2f;
         [SerializeField] private float outputColumnSpacing = 0.6f;
         [SerializeField] private int outputColumns = 2;
+        [SerializeField] private int maxOutputCapacity = 10;
+        
+        [Header("UI Integration")]
+        [SerializeField] private GameObject processorMaxIndicator;
 
         private List<Transform> _processedItems = new List<Transform>();
+
+        public int ProcessedItemCount => _processedItems.Count;
         private IObjectPool<GameObject> _outputPool;
 
         private void Awake()
@@ -28,6 +34,7 @@ namespace Supercent.Field
 
         private void Start()
         {
+            if (processorMaxIndicator != null) processorMaxIndicator.SetActive(false);
             StartCoroutine(ProcessingRoutine());
         }
 
@@ -46,6 +53,16 @@ namespace Supercent.Field
         {
             while (true)
             {
+                // 적재 공간이 다 찼으면 대기
+                if (_processedItems.Count >= maxOutputCapacity)
+                {
+                    if (processorMaxIndicator != null) processorMaxIndicator.SetActive(true);
+                    yield return new WaitForSeconds(0.5f);
+                    continue;
+                }
+
+                if (processorMaxIndicator != null) processorMaxIndicator.SetActive(false);
+
                 // 입력 구역에서 원자재 하나 추출
                 Transform rawMaterial = inputZone.ExtractItem();
 
@@ -93,6 +110,12 @@ namespace Supercent.Field
             int lastIndex = _processedItems.Count - 1;
             GameObject item = _processedItems[lastIndex].gameObject;
             _processedItems.RemoveAt(lastIndex);
+
+            // 하나라도 빠지면 MAX 표시 비활성화
+            if (processorMaxIndicator != null && _processedItems.Count < maxOutputCapacity)
+            {
+                processorMaxIndicator.SetActive(false);
+            }
             return item;
         }
     }

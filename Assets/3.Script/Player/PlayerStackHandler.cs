@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Pool;
@@ -30,10 +31,26 @@ namespace Supercent.Player
         [SerializeField] private float maxTiltAngle = 10f;
         [SerializeField] private int maxStackLimit = 20;
 
+        [Header("UI Integration")]
+        [SerializeField] private GameObject playerMaxIndicator;
+        private Coroutine _maxTextCoroutine;
+
         [Header("Pool Settings")]
         [SerializeField] private int initialPoolSize = 20;
 
-        public bool CanAdd => _backStackedItems.Count + _frontStackedItems.Count + _moneyStackedItems.Count < maxStackLimit * 2;
+        public bool CanAdd => (_backStackedItems.Count + _frontStackedItems.Count + _moneyStackedItems.Count) < maxStackLimit;
+        public bool CanAddFront => _frontStackedItems.Count < maxStackLimit;
+        public bool CanAddBack => _backStackedItems.Count < maxStackLimit;
+
+        public void IncreaseStackLimit(int amount)
+        {
+            maxStackLimit += amount;
+        }
+
+        public int BackStackCount => _backStackedItems.Count;
+        public int FrontStackCount => _frontStackedItems.Count;
+        public int MoneyStackCount => _moneyStackedItems.Count;
+        public int TotalStackCount => _backStackedItems.Count + _frontStackedItems.Count + _moneyStackedItems.Count;
 
         private List<Transform> _frontStackedItems = new List<Transform>();
         private List<Transform> _backStackedItems = new List<Transform>();
@@ -49,6 +66,28 @@ namespace Supercent.Player
         {
             InitializePools();
             _lastParentPosition = transform.position;
+        }
+
+        private void OnEnable()
+        {
+            if (playerMaxIndicator != null) 
+            {
+                playerMaxIndicator.SetActive(false);
+                Debug.LogWarning($"<color=white>[PlayerStack]</color> {gameObject.name} UI Hidden in OnEnable.");
+            }
+        }
+
+        private IEnumerator Start()
+        {
+            // 상한선 값이 잘못 설정된 경우 보호 로직 
+            if (maxStackLimit <= 0) maxStackLimit = 5;
+
+            yield return new WaitForSeconds(0.1f); 
+            if (playerMaxIndicator != null && playerMaxIndicator.activeSelf) 
+            {
+                playerMaxIndicator.SetActive(false);
+                Debug.LogWarning("<color=white>[PlayerStack]</color> UI Hidden again in Start to be sure.");
+            }
         }
 
         private void InitializePools()
@@ -71,7 +110,7 @@ namespace Supercent.Player
         // 원자재 추가 (등 뒤)
         public void AddToStack()
         {
-            if (_backStackedItems.Count >= maxStackLimit) return;
+            if (!CanAddBack) return;
             GameObject newItem = _backPool.Get();
             newItem.transform.position = backStackPivot != null ? backStackPivot.position : transform.position;
             newItem.transform.SetParent(null);
@@ -86,12 +125,13 @@ namespace Supercent.Player
         }
 
         // 가공품 추가 (전면)
-        public void AddExistingToStack(Transform item)
+        public bool AddExistingToStack(Transform item)
         {
-            if (_frontStackedItems.Count >= maxStackLimit) return;
+            if (!CanAddFront) return false;
             item.position = frontStackPivot != null ? frontStackPivot.position : transform.position;
             item.SetParent(null);
             _frontStackedItems.Add(item);
+            return true;
         }
 
         // 스택에서 아이템 추출 (가공기에 넣을 때 등 사용)
@@ -101,6 +141,15 @@ namespace Supercent.Player
             int lastIdx = _backStackedItems.Count - 1;
             GameObject item = _backStackedItems[lastIdx].gameObject;
             _backStackedItems.RemoveAt(lastIdx);
+            return item;
+        }
+
+        public GameObject PopMoneyFromStack()
+        {
+            if (_moneyStackedItems.Count == 0) return null;
+            int lastIdx = _moneyStackedItems.Count - 1;
+            GameObject item = _moneyStackedItems[lastIdx].gameObject;
+            _moneyStackedItems.RemoveAt(lastIdx);
             return item;
         }
 
@@ -115,6 +164,24 @@ namespace Supercent.Player
 
         public void ReleaseToBackPool(GameObject obj) => _backPool.Release(obj);
         public void ReleaseToFrontPool(GameObject obj) => _frontPool.Release(obj);
+
+        public void ShowMaxIndicator()
+        {
+            if (playerMaxIndicator == null) return;
+            if (_maxTextCoroutine != null) return; // 이미 연출 중이거나 쿨타임 중이면 무시
+            
+            _maxTextCoroutine = StartCoroutine(MaxTextRoutine());
+        }
+
+        private System.Collections.IEnumerator MaxTextRoutine()
+        {
+            playerMaxIndicator.SetActive(true);
+            yield return new WaitForSeconds(0.6f); // 잠시 동안만 표시
+            playerMaxIndicator.SetActive(false);
+            
+            yield return new WaitForSeconds(0.5f); // 다시 뜨기까지 0.5초 대기 (쿨타임)
+            _maxTextCoroutine = null;
+        }
 
         private void Update()
         {

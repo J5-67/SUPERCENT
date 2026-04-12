@@ -12,6 +12,10 @@ namespace Supercent.Field
         [SerializeField] private float spacing = 1.5f;
         [SerializeField] private float respawnTime = 3.0f;
 
+        public int Rows => rows;
+        public int Cols => cols;
+        public float Spacing => spacing;
+
         [Header("Pool Settings")]
         [SerializeField] private GameObject nodePrefab;
         [SerializeField] private int defaultCapacity = 128;
