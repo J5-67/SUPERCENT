@@ -48,7 +48,7 @@ namespace Supercent.Field
             UpdateUI();
             
             StopCoroutine(nameof(BopEffect));
-            StartCoroutine(nameof(BopEffect));
+            StartCoroutine(BopEffect());
         }
 
         public void UpdateUI()
@@ -88,16 +88,16 @@ namespace Supercent.Field
 
         private Coroutine _moveCoroutine;
 
-        public void MoveTo(Vector3 targetPos, float speed = 5f)
+        public void MoveTo(Vector3 targetPos, float speed = 5f, System.Action onComplete = null)
         {
             SafeStopMove();
-            _moveCoroutine = StartCoroutine(MoveRoutine(targetPos, speed));
+            _moveCoroutine = StartCoroutine(MoveRoutine(targetPos, speed, onComplete));
         }
 
-        public void FollowPath(Transform[] waypoints, float speed = 5f)
+        public void FollowPath(Transform[] waypoints, float speed = 5f, System.Action onComplete = null)
         {
             SafeStopMove();
-            _moveCoroutine = StartCoroutine(FollowPathRoutine(waypoints, speed));
+            _moveCoroutine = StartCoroutine(FollowPathRoutine(waypoints, speed, onComplete));
         }
 
         private void SafeStopMove()
@@ -114,18 +114,24 @@ namespace Supercent.Field
             }
         }
 
-        private IEnumerator FollowPathRoutine(Transform[] waypoints, float speed)
+        private IEnumerator FollowPathRoutine(Transform[] waypoints, float speed, System.Action onComplete)
         {
-            if (waypoints == null) yield break;
+            if (waypoints == null)
+            {
+                onComplete?.Invoke();
+                yield break;
+            }
 
             foreach (var wp in waypoints)
             {
                 if (wp == null) continue;
-                yield return StartCoroutine(MoveRoutine(wp.position, speed));
+                yield return StartCoroutine(MoveRoutine(wp.position, speed, null));
             }
+            
+            onComplete?.Invoke();
         }
 
-        private IEnumerator MoveRoutine(Vector3 targetPos, float speed)
+        private IEnumerator MoveRoutine(Vector3 targetPos, float speed, System.Action onComplete)
         {
             while (Vector3.SqrMagnitude(transform.position - targetPos) > 0.1f)
             {

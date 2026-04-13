@@ -117,9 +117,11 @@ namespace Supercent.Field
             }
 
             // 채굴 성공 시 결과물을 구역에 전달
-            if (minedAny && _targetZone != null && rawMaterialPrefab != null)
+            if (minedAny && _targetZone != null)
             {
-                GameObject item = Instantiate(rawMaterialPrefab, transform.position + Vector3.up * 1f, Quaternion.identity);
+                GameObject item = Supercent.Systems.ItemPoolManager.Instance.GetRawMaterial();
+                item.transform.position = transform.position + Vector3.up * 1f;
+                item.transform.rotation = Quaternion.identity;
                 _targetZone.AddItem(item);
             }
 

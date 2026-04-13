@@ -31,7 +31,22 @@ namespace Supercent.Field
         [SerializeField] private Slider progressSlider;
         [SerializeField] private Text needText;
         [SerializeField] private Image iconImage;
+        [Header("Visualization")]
         [SerializeField] private GameObject completeEffectPrefab;
+        private UnityEngine.Pool.IObjectPool<GameObject> _effectPool;
+
+        private void Awake()
+        {
+            if (completeEffectPrefab != null)
+            {
+                _effectPool = new UnityEngine.Pool.ObjectPool<GameObject>(
+                    createFunc: () => Instantiate(completeEffectPrefab),
+                    actionOnGet: (obj) => obj.SetActive(true),
+                    actionOnRelease: (obj) => obj.SetActive(false),
+                    defaultCapacity: 1
+                );
+            }
+        }
 
         private int _currentPhaseIndex = 0;
         private int _currentMoney = 0;
@@ -100,7 +115,8 @@ namespace Supercent.Field
         private IEnumerator DepositRoutine()
         {
             float lastVisualTime = 0f;
-            float visualInterval = 0.05f; // 비주얼 돈뭉치가 날라가는 간격
+            float visualInterval = 0.05f; 
+            Vector3 targetPos = moneyReceiverPivot != null ? moneyReceiverPivot.position : transform.position;
 
             while (_playerInside != null && !_isUpgraded)
             {
@@ -114,35 +130,35 @@ namespace Supercent.Field
                     break;
                 }
 
-                // 1. 먼저 전역 지갑(MoneyManager)의 돈을 확인
+                // [중요] 모든 결제는 전역 지갑(MoneyManager)의 숫자에서만 이루어집니다.
+                // 손에 든 돈뭉치는 이미 지갑 숫자에 포함되어 있으므로, 연출용으로만 사용합니다.
                 if (MoneyManager.Instance.CurrentMoney > 0)
                 {
-                    // 소모할 금액 결정 (남은 금액이 적으면 그만큼만)
-                    int amountToTake = 1;
-                    if (MoneyManager.Instance.SpendMoney(amountToTake))
+                    if (MoneyManager.Instance.SpendMoney(1))
                     {
-                        _currentMoney += amountToTake;
+                        _currentMoney += 1;
                         UpdateUI();
 
-                        // 일정 시간 간격으로 비주얼 돈뭉치 날리기
+                        // 일정 주기로 돈이 날아가는 연출 수행
                         if (Time.time > lastVisualTime + visualInterval)
                         {
-                            PopAndFlyVisualMoney();
+                            // 플레이어 손에 물리 돈뭉치가 있다면 그것을 꺼내서 날림
+                            if (_playerInside.MoneyStackCount > 0)
+                            {
+                                GameObject visualMoney = _playerInside.PopMoneyFromStack();
+                                if (visualMoney != null)
+                                {
+                                    MoneyManager.Instance.GiveVisualMoney(visualMoney.transform.position, targetPos);
+                                    MoneyManager.Instance.ReleaseMoney(visualMoney);
+                                }
+                            }
+                            else
+                            {
+                                // 손에 돈이 없으면 가상 돈뭉치를 생성해서 날림
+                                PopAndFlyVisualMoney();
+                            }
                             lastVisualTime = Time.time;
                         }
-                    }
-                }
-                // 2. 전역 지갑에 돈이 없는데 플레이어 스택에 돈뭉치가 있다면 지갑으로 옮김
-                else if (_playerInside.MoneyStackCount > 0)
-                {
-                    GameObject poppedMoney = _playerInside.PopMoneyFromStack();
-                    if (poppedMoney != null)
-                    {
-                        if (poppedMoney.TryGetComponent<Money>(out var moneyComp))
-                        {
-                            MoneyManager.Instance.AddMoney(moneyComp.Value);
-                        }
-                        MoneyManager.Instance.ReleaseMoney(poppedMoney);
                     }
                 }
                 else
@@ -152,8 +168,8 @@ namespace Supercent.Field
                     continue;
                 }
 
-                // 초고속 연사를 위해 매우 짧은 대기
-                yield return new WaitForSeconds(0.01f);
+                // 결제 속도 조절
+                yield return new WaitForSeconds(0.015f);
             }
             
             _depositCoroutine = null;
@@ -161,47 +177,14 @@ namespace Supercent.Field
 
         private void PopAndFlyVisualMoney()
         {
-            // 사실적인 연출을 위해 플레이어 위치에서 리시버로 날아가는 가짜 돈뭉치 생성
-            GameObject visualMoney = MoneyManager.Instance.GetMoney();
-            if (visualMoney != null)
-            {
-                visualMoney.transform.position = _playerInside.transform.position + Vector3.up;
-                StartCoroutine(FlyToReceiver(visualMoney.transform, moneyReceiverPivot != null ? moneyReceiverPivot.position : transform.position, true));
-            }
+            // MoneyManager가 대신 연출을 관리하도록 위임 (존이 파괴되거나 비활성화되어도 돈이 허공에 멈추지 않음)
+            Vector3 startPos = _playerInside.transform.position + Vector3.up;
+            Vector3 targetPos = moneyReceiverPivot != null ? moneyReceiverPivot.position : transform.position;
+            
+            MoneyManager.Instance.GiveVisualMoney(startPos, targetPos);
         }
 
-        private IEnumerator FlyToReceiver(Transform item, Vector3 targetPos, bool releaseAtEnd = false)
-        {
-            Vector3 startPos = item.position;
-            float elapsed = 0f;
-            float flyDuration = 0.25f;
 
-            item.SetParent(null);
-
-            while (elapsed < flyDuration)
-            {
-                elapsed += Time.deltaTime;
-                float t = elapsed / flyDuration;
-
-                // 포물선 궤적
-                Vector3 currentPos = Vector3.Lerp(startPos, targetPos, t);
-                currentPos.y += Mathf.Sin(t * Mathf.PI) * 1.5f;
-                
-                item.position = currentPos;
-                item.localScale = Vector3.Lerp(Vector3.one, Vector3.one * 0.5f, t);
-
-                yield return null;
-            }
-
-            if (releaseAtEnd)
-            {
-                MoneyManager.Instance.ReleaseMoney(item.gameObject);
-            }
-            else
-            {
-                item.position = targetPos;
-            }
-        }
 
         private void UpdateUI()
         {
@@ -233,15 +216,24 @@ namespace Supercent.Field
             
             // 현재 단계의 이벤트 실행
             phases[_currentPhaseIndex].onComplete?.Invoke();
-            
-            if (completeEffectPrefab != null)
+            // 완료 연출 (풀링 사용)
+            if (_effectPool != null)
             {
-                Instantiate(completeEffectPrefab, transform.position, Quaternion.identity);
+                GameObject effect = _effectPool.Get();
+                effect.transform.position = transform.position;
+                effect.transform.rotation = Quaternion.identity;
+                StartCoroutine(ReleaseEffectWithDelay(effect, 2f));
             }
 
             // 다음 단계로 자동 전환
             _currentPhaseIndex++;
             Invoke(nameof(SetupCurrentPhase), 0.1f);
+        }
+
+        private IEnumerator ReleaseEffectWithDelay(GameObject effect, float delay)
+        {
+            yield return new WaitForSeconds(delay);
+            _effectPool.Release(effect);
         }
     }
 }

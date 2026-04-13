@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Pool;
@@ -21,9 +21,9 @@ namespace Supercent.Player
 
         [Header("Money Stack")]
         [SerializeField] private GameObject moneyPrefab;
-        [SerializeField] private Vector3 moneyOffset = new Vector3(0f, 0, -1.0f); // 리소스(-0.5)보다 더 뒤(-1.0)로 배치
+        [SerializeField] private Vector3 moneyOffset = new Vector3(0f, 0, -1.0f); // 由ъ냼??-0.5)蹂대떎 ????-1.0)濡?諛곗튂
         [SerializeField] private float moneySpacing = 0.1f;
-        [SerializeField] private float moneyInitialHeight = 0f; // 옆에 쌓이므로 0부터 시작
+        [SerializeField] private float moneyInitialHeight = 0f; // ?놁뿉 ?볦씠誘濡?0遺???쒖옉
 
         [Header("Movement Settings")]
         [SerializeField] private float followSpeed = 15f;
@@ -59,6 +59,9 @@ namespace Supercent.Player
         private Dictionary<Transform, Quaternion> _initialRotations = new Dictionary<Transform, Quaternion>();
         private Dictionary<Transform, Vector3> _initialScales = new Dictionary<Transform, Vector3>();
         
+        private IObjectPool<GameObject> _frontPool;
+        private IObjectPool<GameObject> _backPool;
+        
         private Vector3 _lastParentPosition;
         private Vector3 _parentVelocity;
 
@@ -79,7 +82,7 @@ namespace Supercent.Player
 
         private IEnumerator Start()
         {
-            // 상한선 값이 잘못 설정된 경우 보호 로직 
+            // ?곹븳??媛믪씠 ?섎せ ?ㅼ젙??寃쎌슦 蹂댄샇 濡쒖쭅 
             if (maxStackLimit <= 0) maxStackLimit = 5;
 
             yield return new WaitForSeconds(0.1f); 
@@ -90,23 +93,32 @@ namespace Supercent.Player
             }
         }
 
-        public void ReleaseToBackPool(GameObject obj) => Supercent.Systems.ItemPoolManager.Instance.ReleaseRawMaterial(obj);
-        public void ReleaseToFrontPool(GameObject obj) => Supercent.Systems.ItemPoolManager.Instance.ReleaseProcessedItem(obj);
-
         private void InitializePools()
         {
-            // 글로벌 풀링 시스템(ItemPoolManager) 도입으로 로컬 풀 초기화 삭제
+            _frontPool = new ObjectPool<GameObject>(
+                createFunc: () => Instantiate(processedItemPrefab),
+                actionOnGet: (obj) => obj.SetActive(true),
+                actionOnRelease: (obj) => obj.SetActive(false),
+                defaultCapacity: initialPoolSize
+            );
+
+            _backPool = new ObjectPool<GameObject>(
+                createFunc: () => Instantiate(rawItemPrefab),
+                actionOnGet: (obj) => obj.SetActive(true),
+                actionOnRelease: (obj) => obj.SetActive(false),
+                defaultCapacity: initialPoolSize
+            );
         }
 
-        // 원자재 추가 (등 뒤)
+        // ?먯옄??異붽? (????
         public void AddToStack()
         {
             if (!CanAddBack || rawItemPrefab == null) return;
-            GameObject newItem = Supercent.Systems.ItemPoolManager.Instance.GetRawMaterial();
+            GameObject newItem = _backPool.Get();
             newItem.transform.position = backStackPivot != null ? backStackPivot.position : transform.position;
             newItem.transform.SetParent(null);
             
-            // 프리팹 설정값 강제 동기화
+            // ?꾨━???ㅼ젙媛?媛뺤젣 ?숆린??
             newItem.transform.rotation = rawItemPrefab.transform.rotation;
             newItem.transform.localScale = rawItemPrefab.transform.localScale;
             
@@ -115,13 +127,13 @@ namespace Supercent.Player
             _backStackedItems.Add(newItem.transform);
         }
 
-        // 돈 추가 (원자재 위 또는 뒤)
+        // ??異붽? (?먯옄?????먮뒗 ??
         public void AddMoneyToStack(Transform moneyTrm)
         {
             if (moneyPrefab == null) return;
             moneyTrm.SetParent(null);
             
-            // 프리팹 설정값 강제 동기화
+            // ?꾨━???ㅼ젙媛?媛뺤젣 ?숆린??
             moneyTrm.rotation = moneyPrefab.transform.rotation;
             moneyTrm.localScale = moneyPrefab.transform.localScale;
 
@@ -130,14 +142,14 @@ namespace Supercent.Player
             _moneyStackedItems.Add(moneyTrm);
         }
 
-        // 가공품 추가 (전면)
+        // 媛怨듯뭹 異붽? (?꾨㈃)
         public bool AddExistingToStack(Transform item)
         {
             if (!CanAddFront || processedItemPrefab == null) return false;
             item.position = frontStackPivot != null ? frontStackPivot.position : transform.position;
             item.SetParent(null);
             
-            // 주울 당시의 회전값이 아닌, 원본 프리팹의 설정값을 초기값으로 강제 설정
+            // 二쇱슱 ?뱀떆???뚯쟾媛믪씠 ?꾨땶, ?먮낯 ?꾨━?뱀쓽 ?ㅼ젙媛믪쓣 珥덇린媛믪쑝濡?媛뺤젣 ?ㅼ젙
             item.rotation = processedItemPrefab.transform.rotation;
             item.localScale = processedItemPrefab.transform.localScale;
 
@@ -147,7 +159,7 @@ namespace Supercent.Player
             return true;
         }
 
-        // 스택에서 아이템 추출 (가공기에 넣을 때 등 사용)
+        // ?ㅽ깮?먯꽌 ?꾩씠??異붿텧 (媛怨듦린???ｌ쓣 ?????ъ슜)
         public GameObject PopFromStack()
         {
             if (_backStackedItems.Count == 0) return null;
@@ -181,10 +193,13 @@ namespace Supercent.Player
             return itemTrm.gameObject;
         }
 
+        public void ReleaseToBackPool(GameObject obj) => _backPool.Release(obj);
+        public void ReleaseToFrontPool(GameObject obj) => _frontPool.Release(obj);
+
         public void ShowMaxIndicator()
         {
             if (playerMaxIndicator == null) return;
-            if (_maxTextCoroutine != null) return; // 이미 연출 중이거나 쿨타임 중이면 무시
+            if (_maxTextCoroutine != null) return; // ?대? ?곗텧 以묒씠嫄곕굹 荑⑦???以묒씠硫?臾댁떆
             
             _maxTextCoroutine = StartCoroutine(MaxTextRoutine());
         }
@@ -192,10 +207,10 @@ namespace Supercent.Player
         private System.Collections.IEnumerator MaxTextRoutine()
         {
             playerMaxIndicator.SetActive(true);
-            yield return new WaitForSeconds(0.6f); // 잠시 동안만 표시
+            yield return new WaitForSeconds(0.6f); // ?좎떆 ?숈븞留??쒖떆
             playerMaxIndicator.SetActive(false);
             
-            yield return new WaitForSeconds(0.5f); // 다시 뜨기까지 0.5초 대기 (쿨타임)
+            yield return new WaitForSeconds(0.5f); // ?ㅼ떆 ?④린源뚯? 0.5珥??湲?(荑⑦???
             _maxTextCoroutine = null;
         }
 
@@ -213,16 +228,16 @@ namespace Supercent.Player
 
         private void UpdateStacks()
         {
-            // 전면 스택 업데이트
+            // ?꾨㈃ ?ㅽ깮 ?낅뜲?댄듃
             UpdateSingleStack(_frontStackedItems, frontOffSet, frontSpacing, 0);
-            // 후면 스택 업데이트
+            // ?꾨㈃ ?ㅽ깮 ?낅뜲?댄듃
             UpdateSingleStack(_backStackedItems, backOffset, backSpacing, 0);
             
-            // 돈 스택 업데이트 (리소스 유무에 따라 동적으로 Z축 위치 조정)
+            // ???ㅽ깮 ?낅뜲?댄듃 (由ъ냼???좊Т???곕씪 ?숈쟻?쇰줈 Z異??꾩튂 議곗젙)
             Vector3 dynamicMoneyOffset = moneyOffset;
             if (_backStackedItems.Count > 0)
             {
-                // 리소스가 있다면 리소스 위치보다 뒤로 확실히 밀어줌
+                // 由ъ냼?ㅺ? ?덈떎硫?由ъ냼???꾩튂蹂대떎 ?ㅻ줈 ?뺤떎??諛?댁쨲
                 dynamicMoneyOffset.z = backOffset.z - 0.7f;
             }
             
@@ -251,14 +266,149 @@ namespace Supercent.Player
 
                 current.position = Vector3.Lerp(current.position, targetPos, Time.deltaTime * followSpeed);
                 
-                // 프리팹 고유의 크기 유지
+                // ?꾨━??怨좎쑀???ш린 ?좎?
                 if (_initialScales.ContainsKey(current))
                     current.localScale = _initialScales[current];
 
-                // 프리팹 고유의 회전 오프셋을 적용 (플레이어 회전 * 초기 오프셋)
+                // ?꾨━??怨좎쑀???뚯쟾 ?ㅽ봽?뗭쓣 ?곸슜 (?뚮젅?댁뼱 ?뚯쟾 * 珥덇린 ?ㅽ봽??
                 Quaternion initialRot = _initialRotations.ContainsKey(current) ? _initialRotations[current] : Quaternion.identity;
                 current.rotation = Quaternion.Slerp(current.rotation, transform.rotation * initialRot, Time.deltaTime * followSpeed);
             }
+        }
+    }
+}
+using System.Collections;
+using UnityEngine;
+
+namespace Supercent.Field
+{
+    public class AutoMiner : MonoBehaviour
+    {
+        [Header("Settings")]
+        [SerializeField] private float moveSpeed = 2f;
+        [SerializeField] private float miningInterval = 0.5f;
+        [SerializeField] private float scannerRadius = 1.0f;
+        [SerializeField] private LayerMask resourceLayer;
+
+        [Header("Patrol Settings")]
+        [SerializeField] private float maxDistance = 20f; // ?욎쑝濡?媛??理쒕? 嫄곕━
+        
+        [Header("Resources")]
+        [SerializeField] private GameObject rawMaterialPrefab;
+        private ResourceZone _targetZone;
+
+        private bool _isMining = false;
+        private bool _isReturning = false;
+        private float _lastMiningTime;
+        private Vector3 _startPosition;
+        private Vector3 _forwardDir;
+        private float _currentDist = 0f;
+
+        private void Start()
+        {
+            _startPosition = transform.position;
+            
+            // Y異??뚯쟾???ы븿???꾨뱶 諛⑺뼢???뺢퇋?뷀븯?????            _forwardDir = transform.forward;
+            _forwardDir.y = 0;
+            _forwardDir.Normalize();
+        }
+
+        public void Initialize(ResourceZone zone, GameObject rawPrefab, float dist)
+        {
+            _targetZone = zone;
+            rawMaterialPrefab = rawPrefab;
+            maxDistance = dist;
+        }
+
+        private void Update()
+        {
+            if (_isMining) return;
+
+            ScanForResources();
+
+            // 嫄곕━ ?낅뜲?댄듃
+            if (_isReturning)
+            {
+                _currentDist -= moveSpeed * Time.deltaTime;
+                if (_currentDist <= 0)
+                {
+                    _currentDist = 0;
+                    _isReturning = false;
+                }
+            }
+            else
+            {
+                _currentDist += moveSpeed * Time.deltaTime;
+                if (_currentDist >= maxDistance)
+                {
+                    _isReturning = true;
+                }
+            }
+
+            // 怨좎젙???쇱씤 ?꾩뿉?쒖쓽 ?꾩튂 怨꾩궛 (?대룞 怨듭떇: ?쒖옉??+ (諛⑺뼢 * 嫄곕━))
+            // ??諛⑹떇? ?꾨뱶媛 ?대뼡 媛곷룄濡??뚯쟾???덈뱺 ?ㅼ감 ?놁씠 吏곸꽑 ?대룞??蹂댁옣?⑸땲??
+            transform.position = _startPosition + (_forwardDir * _currentDist);
+
+            // ?뚯쟾 泥섎━: 吏꾪뻾 諛⑺뼢???곕씪 遺?쒕읇寃??뚯쟾
+            Vector3 targetLookDir = _isReturning ? -_forwardDir : _forwardDir;
+            if (targetLookDir != Vector3.zero)
+            {
+                transform.forward = Vector3.Lerp(transform.forward, targetLookDir, Time.deltaTime * 10f);
+            }
+        }
+
+        private void ScanForResources()
+        {
+            if (Time.time < _lastMiningTime + miningInterval) return;
+
+            Collider[] hits = Physics.OverlapSphere(transform.position + transform.forward * 0.5f, scannerRadius, resourceLayer);
+            
+            if (hits.Length > 0)
+            {
+                StartCoroutine(MiningRoutine(hits));
+            }
+        }
+
+        private IEnumerator MiningRoutine(Collider[] hits)
+        {
+            _isMining = true;
+            
+            yield return new WaitForSeconds(miningInterval);
+
+            bool minedAny = false;
+            foreach (var hit in hits)
+            {
+                if (hit.TryGetComponent<ResourceNode>(out var node))
+                {
+                    node.CollectBy(null); 
+                    minedAny = true;
+                }
+                else
+                {
+                    var parentNode = hit.GetComponentInParent<ResourceNode>();
+                    if (parentNode != null)
+                    {
+                        parentNode.CollectBy(null);
+                        minedAny = true;
+                    }
+                }
+            }
+
+            // 梨꾧뎬 ?깃났 ??寃곌낵臾쇱쓣 援ъ뿭???꾨떖
+            if (minedAny && _targetZone != null && rawMaterialPrefab != null)
+            {
+                GameObject item = Instantiate(rawMaterialPrefab, transform.position + Vector3.up * 1f, Quaternion.identity);
+                _targetZone.AddItem(item);
+            }
+
+            _lastMiningTime = Time.time;
+            _isMining = false;
+        }
+
+        private void OnDrawGizmosSelected()
+        {
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawWireSphere(transform.position + transform.forward * 0.5f, scannerRadius);
         }
     }
 }

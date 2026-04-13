@@ -104,13 +104,11 @@ namespace Supercent.Systems
         {
             if (navigationPointer == null) return;
 
+            // 특정 단계(광물 수거 후 가공기로 유도할 때)에서만 길안내 화살표 표시
             FloatingArrow targetArrow = currentStep switch
             {
-                TutorialStep.MineMinerals => toResourceField,
                 TutorialStep.ToProcessorInput => toProcessorInput,
                 TutorialStep.ToProcessorOutput => toProcessorOutput,
-                TutorialStep.ToSellZone => toSellZone,
-                TutorialStep.CollectMoney => toMoneyZone,
                 _ => null
             };
 

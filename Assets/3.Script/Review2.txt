@@ -1,0 +1,74 @@
+﻿using UnityEngine;
+using UnityEngine.UI;
+
+namespace Supercent.UI
+{
+    public class SoundToggle : MonoBehaviour
+    {
+        [Header("UI References")]
+        [SerializeField] private Image iconImage;
+        [SerializeField] private Sprite soundOnSprite;
+        [SerializeField] private Sprite soundOffSprite;
+
+        private bool _isMuted = false;
+
+        private void Start()
+        {
+            if (iconImage == null) iconImage = GetComponent<Image>();
+            
+            // ??λ맂 ?ㅼ젙???덈떎硫?遺덈윭?ㅻ뒗 濡쒖쭅 (湲곕낯? ON)
+            UpdateUI();
+        }
+
+        public void ToggleSound()
+        {
+            _isMuted = !_isMuted;
+            
+            // ?ㅻ뵒??由ъ뒪?덈? ?쇱떆?뺤??섏뿬 ?꾩껜 ?뚮━ ?쒖뼱
+            AudioListener.pause = _isMuted;
+            
+            UpdateUI();
+        }
+
+        private void UpdateUI()
+        {
+            if (iconImage == null) return;
+
+            iconImage.sprite = _isMuted ? soundOffSprite : soundOnSprite;
+        }
+    }
+}
+using UnityEngine;
+
+namespace Supercent.UI
+{
+    public class FloatingArrow : MonoBehaviour
+    {
+        [Header("Settings")]
+        [SerializeField] private float bobSpeed = 2f;
+        [SerializeField] private float bobHeight = 0.5f;
+        [SerializeField] private Vector3 rotateSpeed = new Vector3(0, 50, 0);
+
+        private Vector3 _startPos;
+
+        private void Start()
+        {
+            _startPos = transform.localPosition;
+        }
+
+        private void Update()
+        {
+            // ?곹븯 遺硫붾옉 ?吏곸엫
+            float newY = _startPos.y + Mathf.Sin(Time.time * bobSpeed) * bobHeight;
+            transform.localPosition = new Vector3(_startPos.x, newY, _startPos.z);
+
+            // ?뚯쟾 ?곗텧 (?꾩슂 ??
+            transform.Rotate(rotateSpeed * Time.deltaTime);
+        }
+
+        public void SetVisible(bool visible)
+        {
+            gameObject.SetActive(visible);
+        }
+    }
+}

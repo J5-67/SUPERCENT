@@ -34,6 +34,9 @@ namespace Supercent.Field
         [SerializeField] private Transform waitingPivot;
         [SerializeField] private float waitingSpacing = 1.0f;
 
+        [Header("UI Interaction Settings")]
+        [SerializeField] private GameObject upgradeSuccessUI;
+
         private int _currentCount = 0;
         private List<GameObject> _prisoners = new List<GameObject>();
         private List<Customer> _waitingCustomers = new List<Customer>();
@@ -43,6 +46,7 @@ namespace Supercent.Field
         {
             UpdateUI();
             if (prisonUpgradeZone != null) prisonUpgradeZone.SetActive(false);
+            if (upgradeSuccessUI != null) upgradeSuccessUI.SetActive(false);
         }
 
         public Transform[] GetEntryPath() => entryPath;
@@ -66,7 +70,7 @@ namespace Supercent.Field
             {
                 bool isFull = _currentCount >= maxCapacity;
                 
-                // 새로 활성화되는 순간에만 카메라 포커스 연출
+                // 새로 활성화되는 순간에만 카메라 포커스 연출 (단순 보여주기만 함)
                 if (isFull && !prisonUpgradeZone.activeSelf)
                 {
                     if (TopDownCamera.Instance != null)
@@ -76,6 +80,15 @@ namespace Supercent.Field
                 }
                 
                 prisonUpgradeZone.SetActive(isFull);
+            }
+        }
+
+        private void ShowUpgradeSuccessUI()
+        {
+            if (upgradeSuccessUI != null)
+            {
+                upgradeSuccessUI.SetActive(true);
+                Time.timeScale = 0f; // 게임 일시정지
             }
         }
         
@@ -98,6 +111,16 @@ namespace Supercent.Field
         {
             maxCapacity += amount;
             UpdateUI();
+
+            // 감옥 확장 업그레이드 완료 후 카메라 연출 시작 (확장된 구역을 비춰줌)
+            if (TopDownCamera.Instance != null)
+            {
+                // ShowUpgradeEffectSimple: 카메라가 타겟을 비췄다가 플레이어에게 다시 돌아옴
+                TopDownCamera.Instance.ShowUpgradeEffectSimple(transform, () => {
+                    // 플레이어에게 카메라가 돌아온 직후 게임을 멈추고 UI 활성화
+                    ShowUpgradeSuccessUI();
+                });
+            }
 
             // 자리가 생겼으니 대기 중인 구매자 확인
             CheckWaitingCustomers();

@@ -25,7 +25,6 @@ namespace Supercent.Field
         private List<Transform> _processedItems = new List<Transform>();
 
         public int ProcessedItemCount => _processedItems.Count;
-        private IObjectPool<GameObject> _outputPool;
 
         private void Awake()
         {
@@ -40,13 +39,7 @@ namespace Supercent.Field
 
         private void InitializePool()
         {
-            _outputPool = new ObjectPool<GameObject>(
-                createFunc: () => Instantiate(processedPrefab, transform),
-                actionOnGet: (obj) => obj.SetActive(true),
-                actionOnRelease: (obj) => obj.SetActive(false),
-                collectionCheck: false,
-                defaultCapacity: 20
-            );
+            // 글로벌 풀링 시스템(ItemPoolManager) 도입으로 로컬 풀 초기화 삭제
         }
 
         private IEnumerator ProcessingRoutine()
@@ -68,9 +61,8 @@ namespace Supercent.Field
 
                 if (rawMaterial != null)
                 {
-                    // 원자재 기계 안으로 이동 연출 후 소멸 (풀링 반환 로직은 시스템에 따라 조절 가능)
-                    // 현재는 간단히 비활성화 처리 (실제 환경에서는 해당 풀로 돌려보내는 기능 필요)
-                    rawMaterial.gameObject.SetActive(false);
+                    // 원자재를 글로벌 풀로 반환하여 메모리 누수 방지
+                    Supercent.Systems.ItemPoolManager.Instance.ReleaseRawMaterial(rawMaterial.gameObject);
 
                     // 가공 대기
                     yield return new WaitForSeconds(processingTime);
@@ -90,7 +82,8 @@ namespace Supercent.Field
 
         private void CreateProcessedItem()
         {
-            GameObject result = _outputPool.Get();
+            GameObject result = Supercent.Systems.ItemPoolManager.Instance.GetProcessedItem();
+            result.transform.SetParent(transform);
             int index = _processedItems.Count;
             int col = index % outputColumns;
             int row = index / outputColumns;

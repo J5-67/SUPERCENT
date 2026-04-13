@@ -14,29 +14,30 @@ namespace Supercent.Field
         [SerializeField] private float verticalSpacing = 0.1f;
         [SerializeField] private int columns = 3;
         [SerializeField] private float columnSpacing = 0.4f;
+        [SerializeField] private float rowSpacing = 0.4f;
 
-        private List<GameObject> _moneyStack = new List<GameObject>();
+        private List<Transform> _stackedMoney = new List<Transform>();
         private bool _isCollecting = false;
         private PlayerStackHandler _playerInside;
 
-        public bool HasMoney => _moneyStack.Count > 0;
+        public bool HasMoney => _stackedMoney.Count > 0;
 
         public void SpawnMoney()
         {
-            int index = _moneyStack.Count;
+            if (MoneyManager.Instance == null) return;
+            
+            GameObject newMoney = MoneyManager.Instance.GetMoney();
+            if (newMoney == null) return;
+
+            int index = _stackedMoney.Count;
             int col = index % columns;
             int row = index / columns;
 
-            Vector3 offset = new Vector3((col - 1) * columnSpacing, row * verticalSpacing, 0);
-            Vector3 targetPos = spawnPivot.position + offset;
+            Vector3 offset = new Vector3(col * columnSpacing, row * verticalSpacing, row * rowSpacing);
+            newMoney.transform.position = spawnPivot.position + offset;
+            newMoney.transform.rotation = spawnPivot.rotation;
 
-            GameObject newMoney = MoneyManager.Instance.GetMoney();
-            if (newMoney == null) newMoney = Instantiate(moneyPrefab); // Fallback
-            newMoney.transform.position = spawnPivot.position;
-            newMoney.transform.rotation = Quaternion.identity;
-            
-            newMoney.transform.position = targetPos;
-            _moneyStack.Add(newMoney);
+            _stackedMoney.Add(newMoney.transform);
         }
 
         private void OnTriggerEnter(Collider other)
@@ -63,17 +64,17 @@ namespace Supercent.Field
             _isCollecting = true;
 
             // 플레이어가 구역 안에 있는 동안은 계속해서 수거 시도
-            while (_playerInside != null || _moneyStack.Count > 0)
+            while (_playerInside != null || _stackedMoney.Count > 0)
             {
-                if (_playerInside != null && _moneyStack.Count > 0)
+                if (_playerInside != null && _stackedMoney.Count > 0)
                 {
-                    int lastIdx = _moneyStack.Count - 1;
-                    GameObject moneyObj = _moneyStack[lastIdx];
-                    _moneyStack.RemoveAt(lastIdx);
+                    int lastIdx = _stackedMoney.Count - 1;
+                    Transform moneyTrm = _stackedMoney[lastIdx];
+                    _stackedMoney.RemoveAt(lastIdx);
 
-                    if (moneyObj.TryGetComponent<Money>(out var money))
+                    if (moneyTrm.TryGetComponent<Money>(out var money))
                     {
-                        _playerInside.AddMoneyToStack(money.transform);
+                        _playerInside.AddMoneyToStack(moneyTrm);
                         MoneyManager.Instance.AddMoney(money.Value);
                     }
                     yield return new WaitForSeconds(0.05f); // 수거 속도
@@ -82,7 +83,7 @@ namespace Supercent.Field
                 {
                     // 수거할 게 없거나 플레이어가 나가면 잠시 대기
                     yield return new WaitForSeconds(0.1f);
-                    if (_playerInside == null && _moneyStack.Count == 0) break;
+                    if (_playerInside == null && _stackedMoney.Count == 0) break;
                 }
             }
 

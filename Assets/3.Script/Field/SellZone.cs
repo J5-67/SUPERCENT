@@ -41,6 +41,22 @@ namespace Supercent.Field
         private List<Transform> _counterItems = new List<Transform>();
         private Coroutine _depositCoroutine;
         private PlayerStackHandler _currentPlayer;
+        private UnityEngine.Pool.IObjectPool<Customer> _customerPool;
+
+        private void Awake()
+        {
+            InitializeCustomerPool();
+        }
+
+        private void InitializeCustomerPool()
+        {
+            _customerPool = new UnityEngine.Pool.ObjectPool<Customer>(
+                createFunc: () => Instantiate(customerPrefab).GetComponent<Customer>(),
+                actionOnGet: (c) => c.gameObject.SetActive(true),
+                actionOnRelease: (c) => c.gameObject.SetActive(false),
+                defaultCapacity: maxQueueCount + 2
+            );
+        }
 
         private void Start()
         {
@@ -65,14 +81,13 @@ namespace Supercent.Field
             Vector3 spawnOffset = -firstQueuePivot.forward * (_customers.Count + 1) * queueSpacing;
             Vector3 spawnPos = firstQueuePivot.position + spawnOffset + (-firstQueuePivot.forward * 3f);
             
-            GameObject obj = Instantiate(customerPrefab, spawnPos, Quaternion.identity);
+            Customer customer = _customerPool.Get();
+            customer.transform.position = spawnPos;
+            customer.transform.rotation = Quaternion.identity;
             
-            if (obj.TryGetComponent<Customer>(out var customer))
-            {
-                customer.Initialize(Random.Range(minDemand, maxDemand + 1));
-                _customers.Add(customer);
-                UpdateQueuePositions();
-            }
+            customer.Initialize(Random.Range(minDemand, maxDemand + 1));
+            _customers.Add(customer);
+            UpdateQueuePositions();
         }
 
         private void UpdateQueuePositions()
@@ -186,13 +201,13 @@ namespace Supercent.Field
             // 앞으로 퇴장 (감옥이 설정되어 있다면 감옥 경로를 따라감)
             if (targetPrison != null)
             {
-                customer.FollowPath(targetPrison.GetEntryPath());
+                customer.FollowPath(targetPrison.GetEntryPath(), 5f, () => _customerPool.Release(customer));
             }
             else
             {
-                Debug.LogError($"<color=red>[SellZone]</color> Target Prison is NULL! Customer will be destroyed.");
+                // 감옥이 없을 경우 방황하다가 풀로 반환
                 customer.MoveTo(customer.transform.position + firstQueuePivot.forward * 10f, 6f);
-                Destroy(customer.gameObject, 3f);
+                StartCoroutine(ReleaseCustomerWithDelay(customer, 3f));
             }
 
             // 돈 생성
@@ -203,6 +218,12 @@ namespace Supercent.Field
 
             UpdateQueuePositions();
             Invoke(nameof(SpawnCustomer), 1.5f);
+        }
+
+        private IEnumerator ReleaseCustomerWithDelay(Customer customer, float delay)
+        {
+            yield return new WaitForSeconds(delay);
+            _customerPool.Release(customer);
         }
 
         private IEnumerator MoveToCounter(Transform item, Vector3 targetPos)
@@ -235,7 +256,8 @@ namespace Supercent.Field
                 item.localScale = Vector3.Lerp(Vector3.one, Vector3.zero, t);
                 yield return null;
             }
-            item.gameObject.SetActive(false);
+            
+            Supercent.Systems.ItemPoolManager.Instance.ReleaseProcessedItem(item.gameObject);
         }
     }
 }

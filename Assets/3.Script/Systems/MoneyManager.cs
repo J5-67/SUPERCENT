@@ -20,6 +20,7 @@ namespace Supercent.Systems
 
         public int CurrentMoney => _currentMoney;
 
+        /* 
         private void OnGUI()
         {
             // 씬 내의 모든 업그레이드 존을 찾아 버튼 표시
@@ -39,6 +40,7 @@ namespace Supercent.Systems
                 count++;
             }
         }
+        */
 
         private void Awake()
         {
@@ -98,6 +100,42 @@ namespace Supercent.Systems
             _currentMoney -= amount;
             UpdateUI();
             return true;
+        }
+
+        public void GiveVisualMoney(Vector3 startPos, Vector3 targetPos)
+        {
+            GameObject money = GetMoney();
+            if (money != null)
+            {
+                StartCoroutine(FlyMoneyRoutine(money.transform, startPos, targetPos));
+            }
+        }
+
+        private System.Collections.IEnumerator FlyMoneyRoutine(Transform item, Vector3 startPos, Vector3 targetPos)
+        {
+            float elapsed = 0f;
+            float flyDuration = 0.3f;
+            item.position = startPos;
+            item.localScale = Vector3.one;
+
+            while (elapsed < flyDuration)
+            {
+                if (item == null) yield break;
+                
+                elapsed += Time.deltaTime;
+                float t = elapsed / flyDuration;
+
+                // 포물선 궤적
+                Vector3 currentPos = Vector3.Lerp(startPos, targetPos, t);
+                currentPos.y += Mathf.Sin(t * Mathf.PI) * 1.2f;
+                
+                item.position = currentPos;
+                item.localScale = Vector3.Lerp(Vector3.one, Vector3.one * 0.5f, t);
+
+                yield return null;
+            }
+
+            ReleaseMoney(item.gameObject);
         }
 
         private void UpdateUI()
